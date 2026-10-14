@@ -33,13 +33,24 @@ export interface InboxMeta {
  */
 export async function sendToInbox(blob: Blob, meta: InboxMeta): Promise<void> {
   const uploader = getUploaderName();
-  const promptB64 = btoa(encodeURIComponent(meta.prompt).replace(/%([0-9A-F]{2})/g, (_, p) => String.fromCharCode(parseInt(p, 16))));
+  // HTTP 头只认 ASCII，中文一律 base64 传输（UTF-8）
+  const toB64 = (text: string) => {
+    const bytes = new TextEncoder().encode(text);
+    let binary = "";
+
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+
+    return btoa(binary);
+  };
+  const promptB64 = toB64(meta.prompt);
 
   const response = await fetch(`${RELAY_URL}/upload`, {
     method: "POST",
     headers: {
       "Content-Type": blob.type || "image/png",
-      "x-uploader": uploader,
+      "x-uploader-b64": toB64(uploader),
       "x-model": meta.model,
       "x-prompt-b64": promptB64,
     },
