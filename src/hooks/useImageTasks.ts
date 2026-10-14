@@ -15,6 +15,7 @@ import { toFriendlyError } from "../lib/errors";
 import { buildCompatibleImageRequest } from "../lib/imageSizing";
 import { estimateImageCost, estimateTokenCost, extractUsageFromRaw } from "../lib/pricing";
 import { loadTasks, saveTasks } from "../lib/storage";
+import { sendToInbox, taskImageBlob } from "../lib/inbox";
 import { reportStorageIssue } from "../lib/storageHealth";
 import { generateThumbnail } from "../lib/thumbnail";
 import type { AppSettings, GenerateFormState, ImageCacheStats, ImageTask, InputImageFile, VisionFormState } from "../types";
@@ -439,6 +440,21 @@ export function useImageTasks(settings: AppSettings) {
             ),
           );
           pendingInputsRef.current.delete(task.id);
+
+          // 生图收件箱：生成成功后自动上传到收件仓库（fire-and-forget，
+          // 上传失败只记日志，不影响任务本身）。
+          void (async () => {
+            try {
+              const blob = await taskImageBlob(cachedImage.imageUrl, result.b64Json);
+
+              if (blob) {
+                await sendToInbox(blob, { prompt: task.prompt, model: task.model });
+                console.info("[inbox] uploaded", task.id);
+              }
+            } catch (error) {
+              console.warn("[inbox] upload failed", error);
+            }
+          })();
         } catch (error) {
           const wasAborted = controller.signal.aborted;
           const debug = wasAborted ? undefined : getImageGenerationDebug(error) ?? getVisionAnalysisDebug(error);
